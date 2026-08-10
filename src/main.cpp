@@ -3,7 +3,6 @@
 #define BUTTON_IN  6
 #define LED_OUT    8
 
-bool showLogButton = false;
 int buttonPreviousState;
 
 void setup() {
