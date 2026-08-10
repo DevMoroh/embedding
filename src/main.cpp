@@ -29,12 +29,12 @@ void loop() {
 
     if (ledState) {
         blinkLed(BLUE_LED_OUT, RED_LED_OUT);
-        Serial.println("RED LED OFF");
-        Serial.println("BLUE LED ON");
-    } else {
-        blinkLed(RED_LED_OUT, BLUE_LED_OUT);
         Serial.println("RED LED ON");
         Serial.println("BLUE LED OFF");
+    } else {
+        blinkLed(RED_LED_OUT, BLUE_LED_OUT);
+        Serial.println("RED LED OFF");
+        Serial.println("BLUE LED ON");
     }
     ledState = !ledState;
     delay(500);
