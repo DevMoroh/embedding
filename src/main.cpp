@@ -1,41 +1,35 @@
 #include <Arduino.h>
 
-#define RED_LED_OUT 15
-#define BLUE_LED_OUT 16
+#define BUTTON_IN 16
+#define DEBOUNCE_US 30000
 
-bool ledState = false;
+volatile uint32_t button_counter = 0;
+volatile uint32_t last_isr_us = 0;
+uint32_t last_count = 0;
 
-void blinkLed(int pinLow, int pinHigh) {
-    digitalWrite(pinLow, LOW);
-    digitalWrite(pinHigh, HIGH);
-    delay(200);
-    digitalWrite(pinHigh, LOW);
-    delay(200);
-    digitalWrite(pinHigh, HIGH);
-    delay(200);
+void IRAM_ATTR button_isr() {
+    uint32_t now = micros();
+
+    if (now - last_isr_us >= DEBOUNCE_US) {
+        button_counter++;
+        last_isr_us = now;
+    }
 }
 
 void setup() {
+    pinMode(BUTTON_IN, INPUT_PULLUP);
     Serial.begin(115200);
-    delay(1000);
 
-    pinMode(RED_LED_OUT, OUTPUT);
-    digitalWrite(RED_LED_OUT, LOW);
-    pinMode(BLUE_LED_OUT, OUTPUT);
-    digitalWrite(BLUE_LED_OUT, LOW);
+    // Trigger interrupt on falling edge (button press for pull-up wiring).
+    attachInterrupt(digitalPinToInterrupt(BUTTON_IN), button_isr, FALLING);
 }
 
 void loop() {
-
-    if (ledState) {
-        blinkLed(BLUE_LED_OUT, RED_LED_OUT);
-        Serial.println("RED LED ON");
-        Serial.println("BLUE LED OFF");
-    } else {
-        blinkLed(RED_LED_OUT, BLUE_LED_OUT);
-        Serial.println("RED LED OFF");
-        Serial.println("BLUE LED ON");
+    if (button_counter != last_count) {
+        last_count = button_counter;
+        Serial.print("Button Pressed! Count: ");
+        Serial.println(last_count);
     }
-    ledState = !ledState;
-    delay(500);
+
+    delay(10);
 }
