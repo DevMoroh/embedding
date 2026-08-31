@@ -1,41 +1,27 @@
 #include <Arduino.h>
+#include "ledControl.h"
 
-#define RED_LED_OUT 15
-#define BLUE_LED_OUT 16
+constexpr uint8_t LED_1_PIN = 16;
+constexpr uint8_t LED_2_PIN = 17;
+constexpr uint8_t LED_3_PIN = 11;
 
-bool ledState = false;
-
-void blinkLed(int pinLow, int pinHigh) {
-    digitalWrite(pinLow, LOW);
-    digitalWrite(pinHigh, HIGH);
-    delay(200);
-    digitalWrite(pinHigh, LOW);
-    delay(200);
-    digitalWrite(pinHigh, HIGH);
-    delay(200);
-}
+static ledControl_t led_1;
+static ledControl_t led_2;
+static ledControl_t led_3;
 
 void setup() {
     Serial.begin(115200);
-    delay(1000);
 
-    pinMode(RED_LED_OUT, OUTPUT);
-    digitalWrite(RED_LED_OUT, LOW);
-    pinMode(BLUE_LED_OUT, OUTPUT);
-    digitalWrite(BLUE_LED_OUT, LOW);
+    ledControl_init(&led_1, LED_1_PIN, true, LED_MODE_BLINK, 200, 200);
+    ledControl_init(&led_2, LED_2_PIN, true, LED_MODE_BLINK, 500, 500);
+    ledControl_init(&led_3, LED_3_PIN, true, LED_MODE_BLINK, 1000, 1000);
+
 }
 
 void loop() {
 
-    if (ledState) {
-        blinkLed(BLUE_LED_OUT, RED_LED_OUT);
-        Serial.println("RED LED ON");
-        Serial.println("BLUE LED OFF");
-    } else {
-        blinkLed(RED_LED_OUT, BLUE_LED_OUT);
-        Serial.println("RED LED OFF");
-        Serial.println("BLUE LED ON");
-    }
-    ledState = !ledState;
-    delay(500);
+    ledControl_update(&led_1);
+    ledControl_update(&led_2);
+    ledControl_update(&led_3);
+
 }
