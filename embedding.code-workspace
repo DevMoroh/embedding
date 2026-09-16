@@ -1,0 +1,12 @@
+{
+	"folders": [
+		{
+			"path": "../../../../Projects/embedding"
+		},
+		{
+			"name": "embedding-learn",
+			"path": "."
+		}
+	],
+	"settings": {}
+}
