@@ -1,41 +1,98 @@
-#include <Arduino.h>
+#include <stdio.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "esp_log.h"
+#include "esp_random.h"
+#include "i2c.h"
+#include "at24c32.h"
+#include "logger.h"
 
-#define RED_LED_OUT 15
-#define BLUE_LED_OUT 16
+static const char *TAG = "app";
 
-bool ledState = false;
+// Піни та порт шини I2C
+#define I2C_MASTER_SCL_IO  GPIO_NUM_9
+#define I2C_MASTER_SDA_IO  GPIO_NUM_8
+#define I2C_MASTER_NUM     I2C_NUM_0
 
-void blinkLed(int pinLow, int pinHigh) {
-    digitalWrite(pinLow, LOW);
-    digitalWrite(pinHigh, HIGH);
-    delay(200);
-    digitalWrite(pinHigh, LOW);
-    delay(200);
-    digitalWrite(pinHigh, HIGH);
-    delay(200);
-}
+// Скільки логів дописати понад 128 при першому запуску, щоб показати перезапис найстаріших
+#define DEMO_OVERFLOW_LOGS 10U
+// Період запису "вимірювань" у головному циклі
+#define MEASURE_PERIOD_MS  10000
 
-void setup() {
-    Serial.begin(115200);
-    delay(1000);
+extern "C" void app_main()
+{
+    vTaskDelay(pdMS_TO_TICKS(2000));   // чекаємо, поки підключиться монітор
+    ESP_LOGI(TAG, "Start");
 
-    pinMode(RED_LED_OUT, OUTPUT);
-    digitalWrite(RED_LED_OUT, LOW);
-    pinMode(BLUE_LED_OUT, OUTPUT);
-    digitalWrite(BLUE_LED_OUT, LOW);
-}
+    // 1. Створюємо шину I2C
+    i2c_master_bus_handle_t bus = NULL;
+    i2c_bus_settings_t bus_cfg = {};
+    bus_cfg.port = I2C_MASTER_NUM;
+    bus_cfg.sda_pin = I2C_MASTER_SDA_IO;
+    bus_cfg.scl_pin = I2C_MASTER_SCL_IO;
+    bus_cfg.enable_internal_pullup = true;
+    ESP_ERROR_CHECK(i2c_bus_init(&bus_cfg, &bus));
 
-void loop() {
-
-    if (ledState) {
-        blinkLed(BLUE_LED_OUT, RED_LED_OUT);
-        Serial.println("RED LED ON");
-        Serial.println("BLUE LED OFF");
-    } else {
-        blinkLed(RED_LED_OUT, BLUE_LED_OUT);
-        Serial.println("RED LED OFF");
-        Serial.println("BLUE LED ON");
+    // 2. EEPROM AT24C32 (адреса 0x50): перевірка зв'язку
+    at24c32_handle_t eeprom = NULL;
+    esp_err_t err = at24c32_init(bus, AT24C32_I2C_ADDRESS_DEFAULT, &eeprom);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "AT24C32 init failed: %s", esp_err_to_name(err));
+        return;
     }
-    ledState = !ledState;
-    delay(500);
+
+    // 3. Логер: скануємо слоти і відновлюємо позицію останнього логу
+    logger_handle_t logger = NULL;
+    err = logger_init(eeprom, &logger);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Logger init failed: %s", esp_err_to_name(err));
+        return;
+    }
+    logger_print_info(logger);
+
+    // 4. Запис логів різних рівнів; довгий текст обрізається до 32 байт
+    printf("\n--- Write ---\n");
+    logger_write(logger, LOGGER_INFO, "Power on");
+    logger_write(logger, LOGGER_INFO, "Temp %dC", 25);
+    logger_write(logger, LOGGER_WARNING, "Press %dhPa", 1013);
+    logger_write(logger, LOGGER_ERROR, "Failed to read memory block");
+
+    // 5. Перший запуск: заповнюємо всі 128 слотів і ще DEMO_OVERFLOW_LOGS зверху,
+    //    щоб найстаріші логи перезаписались (ring buffer)
+    if (logger_count(logger) < LOGGER_SLOT_COUNT) {
+        printf("\n--- Fill ring buffer ---\n");
+        const uint16_t to_write = (uint16_t)(LOGGER_SLOT_COUNT - logger_count(logger) + DEMO_OVERFLOW_LOGS);
+        for (uint16_t i = 0; i < to_write; i++) {
+            logger_write(logger, LOGGER_INFO, "Fill %u", (unsigned int)i);
+        }
+    }
+
+    // 6. Читання: кількість, перший/останній номер, лог за номером, діапазон, усі логи
+    uint16_t first = 0;
+    uint16_t last = 0;
+    logger_range(logger, &first, &last);
+
+    printf("\n--- Info ---\n");
+    logger_print_info(logger);
+
+    printf("\n--- Log by number ---\n");
+    logger_print(logger, (uint16_t)((last + LOGGER_NUMBER_MODULO - 3U) % LOGGER_NUMBER_MODULO));
+    // Номер перед найстарішим уже перезаписаний -> "not found"
+    logger_print(logger, (uint16_t)((first + LOGGER_NUMBER_MODULO - 1U) % LOGGER_NUMBER_MODULO));
+
+    printf("\n--- Range: last 5 ---\n");
+    logger_print_range(logger, (uint16_t)((last + LOGGER_NUMBER_MODULO - 4U) % LOGGER_NUMBER_MODULO), last);
+
+    printf("\n--- All ---\n");
+    logger_print_all(logger);
+
+    // 7. Головний цикл: періодично пишемо "виміри" температури й тиску
+    printf("\n--- Measurements every %d s ---\n", MEASURE_PERIOD_MS / 1000);
+    while (1) {
+        vTaskDelay(pdMS_TO_TICKS(MEASURE_PERIOD_MS));
+        const int temp = 20 + (int)(esp_random() % 10U);
+        const int press = 1000 + (int)(esp_random() % 30U);
+        logger_write(logger, LOGGER_INFO, "Temp %dC Press %dhPa", temp, press);
+        logger_print_info(logger);
+    }
 }
