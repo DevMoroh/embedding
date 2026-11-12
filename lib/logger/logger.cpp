@@ -34,6 +34,12 @@ static uint16_t prev_slot(uint16_t slot)
     return (uint16_t)((slot + LOGGER_SLOT_COUNT - 1U) % LOGGER_SLOT_COUNT);
 }
 
+/* Адреса початку сторінки слота, вирівняна на 32 байти. */
+static uint32_t slot_address(uint16_t slot)
+{
+    return (uint32_t)slot * LOGGER_RECORD_SIZE;
+}
+
 /*
  * Розбирає запис слота: "#<1-3 цифри> ...", обов'язково з '\0' в межах 32 байт.
  * Чиста сторінка (0xFF) або сміття - не лог.
@@ -101,7 +107,7 @@ static esp_err_t scan(struct logger_s *ctx)
     uint8_t record[LOGGER_RECORD_SIZE];
 
     for (uint16_t slot = 0; slot < LOGGER_SLOT_COUNT; slot++) {
-        const esp_err_t err = at24c32_read_page(ctx->eeprom, slot, record);
+        const esp_err_t err = at24c32_read_page(ctx->eeprom, slot_address(slot), record);
         if (err != ESP_OK) {
             return err;
         }
@@ -149,13 +155,20 @@ esp_err_t logger_init(at24c32_handle_t eeprom, logger_handle_t *logger)
     }
     *logger = NULL;
 
+    // Перевірка зв'язку: EEPROM має підтвердити свою адресу
+    esp_err_t err = at24c32_is_ready(eeprom);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "EEPROM not responding: %s", esp_err_to_name(err));
+        return err;
+    }
+
     struct logger_s *ctx = (struct logger_s *)calloc(1U, sizeof(*ctx));
     if (ctx == NULL) {
         return ESP_ERR_NO_MEM;
     }
     ctx->eeprom = eeprom;
 
-    const esp_err_t err = scan(ctx);
+    err = scan(ctx);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "EEPROM scan failed: %s", esp_err_to_name(err));
         free(ctx);
@@ -168,9 +181,9 @@ esp_err_t logger_init(at24c32_handle_t eeprom, logger_handle_t *logger)
         const uint16_t slot = next_slot(ctx->last_slot);
         ESP_LOGI(TAG, "Last log #%u at page %u (0x%03X), next log #%u -> page %u (0x%03X)",
                  (unsigned int)ctx->last_number, (unsigned int)ctx->last_slot,
-                 (unsigned int)(ctx->last_slot * LOGGER_RECORD_SIZE),
+                 (unsigned int)slot_address(ctx->last_slot),
                  (unsigned int)next_number(ctx->last_number), (unsigned int)slot,
-                 (unsigned int)(slot * LOGGER_RECORD_SIZE));
+                 (unsigned int)slot_address(slot));
     }
 
     *logger = ctx;
@@ -205,7 +218,7 @@ esp_err_t logger_write(logger_handle_t logger, logger_level_t level, const char 
         va_end(args);
     }
 
-    const esp_err_t err = at24c32_write_page(logger->eeprom, slot, (const uint8_t *)record);
+    const esp_err_t err = at24c32_write_page(logger->eeprom, slot_address(slot), (const uint8_t *)record);
     if (err != ESP_OK) {
         return err;
     }
@@ -231,7 +244,7 @@ esp_err_t logger_read(logger_handle_t logger, uint16_t number, char *buffer)
         return ESP_ERR_NOT_FOUND;
     }
 
-    const esp_err_t err = at24c32_read_page(logger->eeprom, slot, (uint8_t *)buffer);
+    const esp_err_t err = at24c32_read_page(logger->eeprom, slot_address(slot), (uint8_t *)buffer);
     if (err != ESP_OK) {
         return err;
     }
@@ -270,13 +283,9 @@ esp_err_t logger_clear(logger_handle_t logger)
         return ESP_ERR_INVALID_ARG;
     }
 
-    uint8_t empty[LOGGER_RECORD_SIZE];
-    memset(empty, 0xFF, sizeof(empty));
-    for (uint16_t slot = 0; slot < LOGGER_SLOT_COUNT; slot++) {
-        const esp_err_t err = at24c32_write_page(logger->eeprom, slot, empty);
-        if (err != ESP_OK) {
-            return err;
-        }
+    const esp_err_t err = at24c32_fill(logger->eeprom, 0U, AT24C32_SIZE_BYTES, 0xFFU);
+    if (err != ESP_OK) {
+        return err;
     }
 
     logger->count = 0;

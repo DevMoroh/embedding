@@ -1,43 +1,71 @@
-#ifndef AT24C32_DRIVER_H
-#define AT24C32_DRIVER_H
+#ifndef AT24C32_H
+#define AT24C32_H
 
-#include <stddef.h>
 #include <stdint.h>
 
 #include "driver/i2c_master.h"
 #include "esp_err.h"
 
-/* AT24C32: 32 Кбіт = 4096 байт, 128 сторінок по 32 байти, 16-бітна адреса комірки. */
-#define AT24C32_I2C_ADDRESS_DEFAULT 0x50U /* A2 = A1 = A0 = 0 */
-#define AT24C32_SIZE                4096U
-#define AT24C32_PAGE_SIZE           32U
-#define AT24C32_PAGE_COUNT          (AT24C32_SIZE / AT24C32_PAGE_SIZE)
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-/* Непрозорий дескриптор AT24C32. */
+#define AT24C32_BASE_ADDRESS       0x50U
+#define AT24C32_SIZE_BYTES         4096U
+#define AT24C32_PAGE_SIZE_BYTES    32U
+#define AT24C32_I2C_SPEED_HZ       100000U
+#define AT24C32_I2C_TIMEOUT_MS     1000U
+#define AT24C32_WRITE_CYCLE_MS     20U
+
 typedef struct at24c32_s *at24c32_handle_t;
 
 /*
- * Перевіряє відповідь мікросхеми на шині та додає її як пристрій I2C (100 кГц).
- * bus     - дескриптор шини з i2c_bus_init()
- * address - I2C-адреса 0x50..0x57 залежно від ніжок A0-A2
- * eeprom  - [out] дескриптор створеного пристрою
- * Повертає ESP_ERR_NOT_FOUND, якщо EEPROM не відповідає.
+ * Додає AT24C32 до ініціалізованої шини I2C.
+ * a_pins задає рівні виводів A2..A0 (0..7).
  */
-esp_err_t at24c32_init(i2c_master_bus_handle_t bus, uint16_t address, at24c32_handle_t *eeprom);
+esp_err_t at24c32_init(i2c_master_bus_handle_t bus,
+                       uint8_t a_pins,
+                       at24c32_handle_t *memory);
 
-/* Видаляє пристрій; шина I2C залишається відкритою. */
-esp_err_t at24c32_deinit(at24c32_handle_t eeprom);
+/* Видаляє пристрій; шина I2C залишається ініціалізованою. */
+esp_err_t at24c32_deinit(at24c32_handle_t memory);
 
-/* Читає 32-байтну сторінку page (0..127) в буфер data. */
-esp_err_t at24c32_read_page(at24c32_handle_t eeprom, uint16_t page, uint8_t *data);
+/* Перевіряє, чи відповідає EEPROM на свою адресу I2C. */
+esp_err_t at24c32_is_ready(at24c32_handle_t memory);
 
-/*
- * Записує 32 байти в сторінку page (0..127) і чекає завершення
- * внутрішнього циклу запису (до 10 мс за даташитом).
- */
-esp_err_t at24c32_write_page(at24c32_handle_t eeprom, uint16_t page, const uint8_t *data);
+/* Читає або записує діапазон байтів у межах адресного простору 4096 байтів. */
+esp_err_t at24c32_read(at24c32_handle_t memory,
+                       uint32_t address,
+                       uint8_t *data,
+                       uint32_t size);
+esp_err_t at24c32_write(at24c32_handle_t memory,
+                        uint32_t address,
+                        const uint8_t *data,
+                        uint32_t size);
 
-/* Послідовне читання size байт з адреси address (з переходом через межі сторінок). */
-esp_err_t at24c32_read(at24c32_handle_t eeprom, uint16_t address, uint8_t *data, size_t size);
+/* Читає або записує повну сторінку за адресою, вирівняною на 32 байти. */
+esp_err_t at24c32_read_page(at24c32_handle_t memory,
+                            uint32_t page_address,
+                            uint8_t data[AT24C32_PAGE_SIZE_BYTES]);
+esp_err_t at24c32_write_page(at24c32_handle_t memory,
+                             uint32_t page_address,
+                             const uint8_t data[AT24C32_PAGE_SIZE_BYTES]);
+
+esp_err_t at24c32_read_byte(at24c32_handle_t memory,
+                            uint32_t address,
+                            uint8_t *value);
+esp_err_t at24c32_write_byte(at24c32_handle_t memory,
+                             uint32_t address,
+                             uint8_t value);
+
+/* Заповнює діапазон значенням; 0xFF відповідає стертій пам'яті. */
+esp_err_t at24c32_fill(at24c32_handle_t memory,
+                       uint32_t address,
+                       uint32_t size,
+                       uint8_t value);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

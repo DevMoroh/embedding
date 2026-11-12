@@ -14,6 +14,9 @@ static const char *TAG = "app";
 #define I2C_MASTER_SDA_IO  GPIO_NUM_8
 #define I2C_MASTER_NUM     I2C_NUM_0
 
+// Рівні виводів A2..A0 мікросхеми AT24C32: 0 -> адреса 0x50
+#define EEPROM_A_PINS      0U
+
 // Скільки логів дописати понад 128 при першому запуску, щоб показати перезапис найстаріших
 #define DEMO_OVERFLOW_LOGS 10U
 // Період запису "вимірювань" у головному циклі
@@ -24,6 +27,19 @@ extern "C" void app_main()
     vTaskDelay(pdMS_TO_TICKS(2000));   // чекаємо, поки підключиться монітор
     ESP_LOGI(TAG, "Start");
 
+    // 0. Діагностика: у вільному стані обидві лінії мають бути в 1 (підтяжка)
+    const gpio_config_t probe_cfg = {
+        .pin_bit_mask = (1ULL << I2C_MASTER_SDA_IO) | (1ULL << I2C_MASTER_SCL_IO),
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    gpio_config(&probe_cfg);
+    vTaskDelay(pdMS_TO_TICKS(10));
+    ESP_LOGI(TAG, "Idle levels: SDA=%d SCL=%d",
+             gpio_get_level(I2C_MASTER_SDA_IO), gpio_get_level(I2C_MASTER_SCL_IO));
+
     // 1. Створюємо шину I2C
     i2c_master_bus_handle_t bus = NULL;
     i2c_bus_settings_t bus_cfg = {};
@@ -33,15 +49,24 @@ extern "C" void app_main()
     bus_cfg.enable_internal_pullup = true;
     ESP_ERROR_CHECK(i2c_bus_init(&bus_cfg, &bus));
 
-    // 2. EEPROM AT24C32 (адреса 0x50): перевірка зв'язку
+    // Сканування шини: AT24C32 - 0x50, DS1307 - 0x68
+    printf("I2C scan:");
+    for (uint16_t addr = 0x08; addr < 0x78; addr++) {
+        if (i2c_bus_probe(bus, addr, 50) == ESP_OK) {
+            printf(" 0x%02X", (unsigned int)addr);
+        }
+    }
+    printf("\n");
+
+    // 2. EEPROM AT24C32 (адреса 0x50)
     at24c32_handle_t eeprom = NULL;
-    esp_err_t err = at24c32_init(bus, AT24C32_I2C_ADDRESS_DEFAULT, &eeprom);
+    esp_err_t err = at24c32_init(bus, EEPROM_A_PINS, &eeprom);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "AT24C32 init failed: %s", esp_err_to_name(err));
         return;
     }
 
-    // 3. Логер: скануємо слоти і відновлюємо позицію останнього логу
+    // 3. Логер: перевіряємо зв'язок з EEPROM, скануємо слоти і відновлюємо позицію останнього логу
     logger_handle_t logger = NULL;
     err = logger_init(eeprom, &logger);
     if (err != ESP_OK) {

@@ -13,9 +13,9 @@
  * доповнений '\0' до 32 байт. Номер логу 0..999, після #999 іде #0.
  * 128 слотів (сторінок); коли всі зайняті, новий лог перезаписує найстаріший.
  */
-#define LOGGER_RECORD_SIZE   AT24C32_PAGE_SIZE   /* 32 байти, разом з '\0' */
-#define LOGGER_SLOT_COUNT    AT24C32_PAGE_COUNT  /* 128 логів */
-#define LOGGER_NUMBER_MODULO 1000U               /* номери #0..#999 */
+#define LOGGER_RECORD_SIZE   AT24C32_PAGE_SIZE_BYTES                          /* 32 байти, разом з '\0' */
+#define LOGGER_SLOT_COUNT    (AT24C32_SIZE_BYTES / AT24C32_PAGE_SIZE_BYTES)  /* 128 логів */
+#define LOGGER_NUMBER_MODULO 1000U                                       /* номери #0..#999 */
 
 typedef enum {
     LOGGER_INFO,
@@ -27,7 +27,7 @@ typedef enum {
 typedef struct logger_s *logger_handle_t;
 
 /*
- * Сканує всі слоти EEPROM, знаходить останній записаний лог (з урахуванням
+ * Перевіряє зв'язок з EEPROM, сканує всі слоти, знаходить останній записаний лог (з урахуванням
  * переходу #999 -> #0) і встановлює вказівник на наступний запис.
  * eeprom - дескриптор з at24c32_init()
  * logger - [out] дескриптор логера
