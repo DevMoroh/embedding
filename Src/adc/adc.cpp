@@ -89,7 +89,8 @@ HAL_StatusTypeDef ADC_Init(const uint32_t *channels, uint32_t count)
 
     // Ініціалізація структури обробника АЦП
 	adc_handle.Instance = ADC1;
-	adc_handle.DMA_Handle = &adc_dma_handle;
+	// Двобічний зв'язок: у перериванні DMA HAL шукає АЦП через hdma->Parent
+	__HAL_LINKDMA(&adc_handle, DMA_Handle, adc_dma_handle);
 	adc_handle.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV4;
 	adc_handle.Init.Resolution = ADC_RESOLUTION_12B;
 	adc_handle.Init.ScanConvMode = count > 1 ? ENABLE : DISABLE;
