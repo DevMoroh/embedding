@@ -8,15 +8,13 @@
 #define LED_INBUILT_PORT  GPIOC
 #define LED_PERIOD_MS     500U
 
-#define ADC_CHANNEL_COUNT 1U
-#define ADC_PERIOD_MS     200U   // як часто запускати нове перетворення
+#define ADC_SAMPLES       16U    // скільки вимірів PA5 усереднювати
+#define ADC_PERIOD_MS     200U   // як часто запускати нову серію вимірів
 #define ADC_VREF_MV       3300U
 #define ADC_MAX_VALUE     4095U  // 12 біт
 
 static UART_HandleTypeDef huart1;
 
-// Буфер, куди DMA2 Stream0 складає результат ADC1 (PA5)
-static uint32_t adc_values[ADC_CHANNEL_COUNT];
 static volatile bool adc_data_ready;
 static volatile bool adc_error;
 
@@ -51,18 +49,17 @@ extern "C" void main_cpp()
     }
     printf("[UART] USART1 initialized: 115200 baud, 8N1, TX DMA\n");
 
-    // ADC1: PA5 (IN5); результат через DMA2 Stream0
-    const uint32_t adc_channels[ADC_CHANNEL_COUNT] = {ADC_CHANNEL_5};
-    if (ADC_Init(adc_channels, ADC_CHANNEL_COUNT) != HAL_OK) {
+    // ADC1: PA5 (IN5), серія з ADC_SAMPLES вимірів через DMA2 Stream0, далі середнє
+    if (ADC_InitAveraged(ADC_CHANNEL_5, ADC_SAMPLES) != HAL_OK) {
         printf("[ADC] initialization failed\n");
         Error_Handler();
     }
-    printf("[ADC] ADC1 initialized: PA5, DMA\n");
+    printf("[ADC] ADC1 initialized: PA5, DMA, average of %u samples\n", ADC_SAMPLES);
 
     static const char hello[] = "\r\nADC -> UART DMA demo\r\n";
     UART_TransmitDMA(&huart1, reinterpret_cast<const uint8_t *>(hello), sizeof(hello) - 1U);
 
-    if (ADC_StartSequenceDMA(adc_values, ADC_CHANNEL_COUNT) != HAL_OK) {
+    if (ADC_StartAveragedDMA() != HAL_OK) {
         Error_Handler();
     }
 
@@ -81,11 +78,12 @@ extern "C" void main_cpp()
         // Дані готові: формуємо рядок і віддаємо його DMA, щойно UART звільниться
         if (adc_data_ready && UART_IsTxReady(&huart1)) {
             adc_data_ready = false;
+            const uint32_t value = ADC_GetAverage();
 
             const int length = snprintf(uart_tx_buffer, sizeof(uart_tx_buffer),
                                         "ADC PA5: %4lu (%4lu mV)\r\n",
-                                        static_cast<unsigned long>(adc_values[0]),
-                                        static_cast<unsigned long>(to_millivolts(adc_values[0])));
+                                        static_cast<unsigned long>(value),
+                                        static_cast<unsigned long>(to_millivolts(value)));
             if (length > 0) {
                 UART_TransmitDMA(&huart1, reinterpret_cast<const uint8_t *>(uart_tx_buffer),
                                  static_cast<uint16_t>(length));
@@ -98,7 +96,7 @@ extern "C" void main_cpp()
         // Наступне перетворення через ADC_PERIOD_MS
         if (adc_start_pending && (int32_t)(now - adc_next_start) >= 0) {
             adc_start_pending = false;
-            if (ADC_StartSequenceDMA(adc_values, ADC_CHANNEL_COUNT) != HAL_OK) {
+            if (ADC_StartAveragedDMA() != HAL_OK) {
                 Error_Handler();
             }
         }

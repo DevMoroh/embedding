@@ -7,6 +7,10 @@ static uint32_t adc_channel_count;
 #define ADC_CONVERSION_TIMEOUT      10
 #define ADC_MAX_SEQUENCE_CHANNELS   16
 
+// Буфер, куди DMA складає виміри для усереднення
+static uint32_t average_samples[ADC_MAX_AVERAGE_SAMPLES];
+static uint32_t average_count;
+
 // Налаштування пінів GPIO для каналів АЦП
 static void ConfigureChannelPin(uint32_t channel)
 {
@@ -209,6 +213,57 @@ HAL_StatusTypeDef ADC_ReadSequence(uint32_t *values, uint32_t count)
 	HAL_NVIC_EnableIRQ(DMA2_Stream0_IRQn);
 
 	return status;
+}
+
+// Ініціалізація одного каналу з усередненням
+HAL_StatusTypeDef ADC_InitAveraged(uint32_t channel, uint32_t samples)
+{
+	if (samples == 0U || samples > ADC_MAX_AVERAGE_SAMPLES)
+	{
+		return HAL_ERROR;
+	}
+
+	// Той самий канал у кожному ранзі: АЦП в режимі сканування робить samples вимірів підряд
+	uint32_t channels[ADC_MAX_AVERAGE_SAMPLES];
+	for (uint32_t index = 0U; index < samples; ++index)
+	{
+		channels[index] = channel;
+	}
+
+	average_count = 0U;
+	HAL_StatusTypeDef status = ADC_Init(channels, samples);
+	if (status == HAL_OK)
+	{
+		average_count = samples;
+	}
+	return status;
+}
+
+// Асинхронний запуск послідовності вимірів для усереднення
+HAL_StatusTypeDef ADC_StartAveragedDMA(void)
+{
+	if (average_count == 0U)
+	{
+		return HAL_ERROR;
+	}
+
+	return ADC_StartSequenceDMA(average_samples, average_count);
+}
+
+// Середнє арифметичне з округленням
+uint32_t ADC_GetAverage(void)
+{
+	if (average_count == 0U)
+	{
+		return 0U;
+	}
+
+	uint32_t sum = 0U;
+	for (uint32_t index = 0U; index < average_count; ++index)
+	{
+		sum += average_samples[index];
+	}
+	return (sum + average_count / 2U) / average_count;
 }
 
 // Передавання DMA2 Stream 0 до HAL для обробки завершення ADC
